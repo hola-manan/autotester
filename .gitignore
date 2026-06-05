@@ -1,0 +1,18 @@
+# SECRET — never commit (holds the live Gemini key)
+.env
+
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+*.log
+
+# generated per-run artifacts
+projects/*/reports/
+projects/*/cassettes/
+
+# auto-discovered projects are machine-specific (reference local paths) — keep local
+projects/ashi_auto/
