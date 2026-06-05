@@ -19,6 +19,7 @@ Flow (mode="both"):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
@@ -133,24 +134,42 @@ def run_session(
                            metamorphic_base_limit=opts.metamorphic_base_limit):
             all_findings += cr.findings
 
-    # 6) LLM oracles (capped) -------------------------------------------- #
+    # 6) LLM oracles (capped) — chained so each ADDS to the run's findings -- #
+    # Order is granular -> broad (steps, then whole output, then focus); each
+    # call sees what's already been found for this run and reports only NEW
+    # issues, so the three passes don't re-report the same problem.
     judged = [r for r in runs if r.output is not None][: opts.llm_judge_limit]
     for r in judged:
+        run_findings: List[Finding] = []
         try:
             if opts.spot_check:
-                all_findings += spot_check(llm, intent, r)
+                run_findings += spot_check(llm, intent, r, prior=run_findings)
             if opts.final_judge:
-                all_findings += final_judge(llm, intent, r)
+                run_findings += final_judge(llm, intent, r, prior=run_findings)
             if opts.focus:
-                all_findings += focused_check(llm, intent, opts.focus, r)
+                run_findings += focused_check(llm, intent, opts.focus, r, prior=run_findings)
         except Exception as e:
             notes.append(f"LLM oracle failed on {r.case.id}: {e}")
+        all_findings += run_findings
 
-    # 7) Report ----------------------------------------------------------- #
+    # 7) Report (timestamped subfolder — never overwrites a previous run) -- #
     ctx = ReportContext(project=spec.name, mode=opts.mode,
                         num_cases=len(cases), num_runs=len(runs), notes=notes)
-    paths = write_report(all_findings, ctx, spec.reports_dir, cases=cases)
+    out_dir = _timestamped_dir(spec.reports_dir)
+    paths = write_report(all_findings, ctx, out_dir, cases=cases)
     return {"findings": all_findings, "report": paths, "runs": runs, "hypotheses": hypotheses}
+
+
+def _timestamped_dir(reports_dir: Path) -> Path:
+    """A per-run report folder named by date + time (HH:MM), uniquified if two
+    runs land in the same minute so nothing is overwritten."""
+    base = reports_dir / datetime.now().strftime("%Y-%m-%d_%H-%M")
+    out = base
+    n = 2
+    while out.exists():
+        out = reports_dir / f"{base.name}-{n}"
+        n += 1
+    return out
 
 
 def _read_code(paths: Sequence[Path]) -> Optional[str]:

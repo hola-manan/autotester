@@ -15,7 +15,7 @@ Both return :class:`Finding` objects with confidence < 1 (they are judgments).
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .core.models import Finding, RunResult, Severity
 from .llm import LLM
@@ -103,6 +103,28 @@ def _dump(value: Any, max_chars: int) -> str:
     return json.dumps(_clip(value, max_chars), indent=2, default=repr)
 
 
+def _prior_block(prior: Optional[List[Finding]], max_items: int = 30) -> str:
+    """Render already-collected findings so a later oracle can skip them.
+
+    Chaining the three per-run oracles means each call should ADD only new
+    issues, not re-report what an earlier call already found. This renders that
+    'already reported' context compactly (title + observed)."""
+    if not prior:
+        return ""
+    lines = [
+        "# ALREADY REPORTED for this run — do NOT repeat any of these; "
+        "report ONLY genuinely new, distinct issues:"
+    ]
+    for f in prior[:max_items]:
+        obs = (f.observed or "").strip().replace("\n", " ")
+        if len(obs) > 200:
+            obs = obs[:200] + "…"
+        lines.append(f"- {f.title}: {obs}")
+    if len(prior) > max_items:
+        lines.append(f"- (+{len(prior) - max_items} more already reported)")
+    return "\n".join(lines)
+
+
 def _to_findings(raw: Any, run: RunResult, check_id: str) -> List[Finding]:
     items = raw.get("findings", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
     out: List[Finding] = []
@@ -129,7 +151,8 @@ def _to_findings(raw: Any, run: RunResult, check_id: str) -> List[Finding]:
     return out
 
 
-def final_judge(llm: LLM, intent: str, run: RunResult) -> List[Finding]:
+def final_judge(llm: LLM, intent: str, run: RunResult,
+                prior: Optional[List[Finding]] = None) -> List[Finding]:
     if run.output is None:
         return []  # crash handled by runner
     prompt = "\n".join(
@@ -143,17 +166,21 @@ def final_judge(llm: LLM, intent: str, run: RunResult) -> List[Finding]:
             "# Final output the pipeline produced",
             _dump(run.output, 16000),
             "",
+            _prior_block(prior),
+            "",
             "# Task",
             "Judge whether this output is correct and consistent given the input "
             "and intent. Flag anything wrong, fabricated, contradictory, or out of "
-            "range. " + _FINDING_FORMAT,
+            "range. Do not repeat anything under ALREADY REPORTED; add only "
+            "genuinely new problems. " + _FINDING_FORMAT,
         ]
     )
     raw = llm.json(prompt, tier="flash", system=_SYSTEM, temperature=0.1)
     return _to_findings(raw, run, "llm.final_judge")
 
 
-def focused_check(llm: LLM, intent: str, focus: str, run: RunResult, max_steps: int = 12) -> List[Finding]:
+def focused_check(llm: LLM, intent: str, focus: str, run: RunResult, max_steps: int = 12,
+                  prior: Optional[List[Finding]] = None) -> List[Finding]:
     """Judge specifically whether the user's FOCUS feature behaves correctly.
 
     Unlike ``final_judge`` (which looks at everything), this concentrates the
@@ -183,18 +210,22 @@ def focused_check(llm: LLM, intent: str, focus: str, run: RunResult, max_steps: 
             "# Final output",
             _dump(run.output, 9000),
             "",
+            _prior_block(prior),
+            "",
             "# Task",
             "Decide whether the FOCUS feature works correctly for this input. Trace "
             "the relevant values through the steps and the output. Flag any way it is "
             "wrong, incomplete, or diverges from the intended behavior of THIS feature. "
-            + _FINDING_FORMAT,
+            "Do not repeat anything under ALREADY REPORTED; add only genuinely new "
+            "problems. " + _FINDING_FORMAT,
         ]
     )
     raw = llm.json(prompt, tier="flash", system=_SYSTEM, temperature=0.1)
     return _to_findings(raw, run, "llm.focused_check")
 
 
-def spot_check(llm: LLM, intent: str, run: RunResult, max_steps: int = 8) -> List[Finding]:
+def spot_check(llm: LLM, intent: str, run: RunResult, max_steps: int = 8,
+               prior: Optional[List[Finding]] = None) -> List[Finding]:
     if not run.trace.steps:
         return []
     steps = [
@@ -212,12 +243,15 @@ def spot_check(llm: LLM, intent: str, run: RunResult, max_steps: int = 8) -> Lis
             "# Captured pipeline steps (name + input args + returned result)",
             _dump(steps, 11000),
             "",
+            _prior_block(prior),
+            "",
             "# Task",
             "For each step, verify by hand that its result correctly follows from "
             "its inputs per the intent. Flag any step whose output is wrong, uses "
             "a hardcoded/placeholder value instead of the real input, drops data, "
             "swaps fields, or swallows an error. Reference the step name and the "
-            "exact values. " + _FINDING_FORMAT,
+            "exact values. Do not repeat anything under ALREADY REPORTED; add only "
+            "genuinely new problems. " + _FINDING_FORMAT,
         ]
     )
     raw = llm.json(prompt, tier="flash", system=_SYSTEM, temperature=0.1)
