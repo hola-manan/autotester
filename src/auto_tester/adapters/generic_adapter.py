@@ -27,7 +27,8 @@ class GenericAdapter(PipelineAdapter):
         self.intent = intent
         self.instrument_targets = tuple(profile.instrument_targets)
         self._callable = None
-        self._param_names = [p["name"] for p in profile.entrypoint.params if "name" in p]
+        self._param_names = [p["name"] for p in (profile.entrypoint.params or [])
+                             if isinstance(p, dict) and "name" in p]
 
     def _ensure_path(self) -> None:
         root = Path(self.profile.root)
@@ -65,7 +66,7 @@ class GenericAdapter(PipelineAdapter):
             cases.append(Case(payload=payload, label=str(ex.get("label", "")),
                               origin="default", rationale="discovered example"))
         if not cases:  # fall back to the entrypoint's example values
-            payload = {p["name"]: p.get("example") for p in self.profile.entrypoint.params
-                       if "name" in p}
+            payload = {p["name"]: p.get("example") for p in (self.profile.entrypoint.params or [])
+                       if isinstance(p, dict) and "name" in p}
             cases.append(Case(payload=payload, label="from-entrypoint-examples", origin="default"))
         return cases

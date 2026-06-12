@@ -15,10 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 # ===========================================================================
 # 1) Paste the folder you want to test:
-PROJECT = r"C:\path\to\your-project"
+PROJECT = r"/path/to/your-project"  # Windows: r"C:\path\to\your-project"
 
 # 2) Optional — a focus file describing one feature to check (or leave None):
-FOCUS = None  # e.g. r"C:\path\to\your-project\.autotester\focus.md"
+FOCUS = None  # e.g. r"/path/to/your-project/.autotester/focus.md"
 
 # 3) Optional knobs:
 NUM_INPUTS = 12       # how many test inputs to generate

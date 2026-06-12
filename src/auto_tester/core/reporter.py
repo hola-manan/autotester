@@ -28,6 +28,7 @@ class ReportContext:
     num_cases: int = 0
     num_runs: int = 0
     notes: List[str] = field(default_factory=list)
+    partial: bool = False  # LLM checks were skipped (e.g. no API key)
 
 
 def _group(findings: List[Finding]) -> List[Dict[str, Any]]:
@@ -60,6 +61,11 @@ def render_markdown(findings: List[Finding], ctx: ReportContext) -> str:
     groups = _group(findings)
     lines: List[str] = []
     lines.append(f"# Auto-Tester report — `{ctx.project}`\n")
+    if ctx.partial:
+        lines.append("> ⚠️ **PARTIAL RUN — LLM checks were disabled** (no GEMINI_API_KEY). "
+                     "Code-scan, generated inputs, and LLM judging did NOT run; only "
+                     "deterministic checks and fuzzing did. A clean result here is NOT "
+                     "a full pass.\n")
     counts = {s.value: 0 for s in _SEV_ORDER}
     for g in groups:
         counts[g["severity"]] += 1
@@ -112,6 +118,7 @@ def write_report(
 
     payload = {
         "project": ctx.project,
+        "partial": ctx.partial,
         "mode": ctx.mode,
         "num_cases": ctx.num_cases,
         "num_runs": ctx.num_runs,

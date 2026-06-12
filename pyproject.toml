@@ -11,10 +11,15 @@ dependencies = [
     "google-genai>=0.3",  # Gemini API (LLM oracles)
     "httpx>=0.27",        # drives target pipelines over HTTP
     "python-dotenv>=1.0", # loads GEMINI_API_KEY from .env
+    "hypothesis>=6.100",  # property-based input generation + shrinking
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [project.scripts]
 auto-tester = "auto_tester.cli:main"

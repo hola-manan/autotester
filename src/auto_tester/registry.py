@@ -2,35 +2,27 @@
 Project registry — resolves a project name to a ProjectSpec.
 
 Two kinds of projects:
-  * built-ins (``buggy``, ``jeevn``) with hand-written adapters, and
+  * the ``buggy`` self-test fixture (hand-written adapter), and
   * **discovered** projects: any folder under ``projects/<name>/`` that has a
-    ``profile.json`` (produced by ``auto-tester onboard <path>``), run via the
-    config-driven GenericAdapter.
+    ``profile.json`` (produced by ``auto-tester onboard <path>`` or checked in
+    by hand, like ``jeevn``), run via the config-driven GenericAdapter.
+
+A checked-in profile may use ``${ENV_VAR}`` in its ``root`` so it works on any
+machine (jeevn uses ``${JEEVN_SRC}``); resolution fails loudly if the variable
+is unset rather than silently scanning nothing.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import List
 
-from .discover import ProjectProfile
+from .discover import ProjectProfile, read_project_instruments
 from .orchestrator import ProjectSpec
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PROJECTS = _ROOT / "projects"
-
-# jeevn source (sibling repo) for the hand-written demo spec's code-scan.
-_JEEVN_SRC = Path(r"C:\Users\manan\OneDrive2\Desktop\ashi\src\jeevn")
-_JEEVN_CODE = [
-    _JEEVN_SRC / "application" / "advisory_service.py",
-    _JEEVN_SRC / "domain" / "fertilizer" / "requirements.py",
-    _JEEVN_SRC / "domain" / "fertilizer" / "schedule.py",
-    _JEEVN_SRC / "domain" / "irrigation" / "et0.py",
-    _JEEVN_SRC / "domain" / "soil" / "management.py",
-    _JEEVN_SRC / "domain" / "pest_disease_weed" / "assessment.py",
-    _JEEVN_SRC / "domain" / "growth_yield" / "projection.py",
-    _JEEVN_SRC / "infrastructure" / "pseudo_satellite.py",
-]
 
 
 def _buggy_spec() -> ProjectSpec:
@@ -43,17 +35,7 @@ def _buggy_spec() -> ProjectSpec:
     )
 
 
-def _jeevn_spec() -> ProjectSpec:
-    from .adapters.jeevn_adapter import JeevnAdapter
-    return ProjectSpec(
-        name="jeevn",
-        make_adapter=JeevnAdapter,
-        project_dir=_PROJECTS / "jeevn",
-        code_paths=[p for p in _JEEVN_CODE if p.exists()],
-    )
-
-
-_BUILTINS = {"buggy": _buggy_spec, "jeevn": _jeevn_spec}
+_BUILTINS = {"buggy": _buggy_spec}
 
 
 def _module_to_file(profile: ProjectProfile, dotted: str) -> Path | None:
@@ -66,28 +48,43 @@ def _module_to_file(profile: ProjectProfile, dotted: str) -> Path | None:
     return None
 
 
+def _code_paths(profile: ProjectProfile) -> List[Path]:
+    """Files for the white-box code-scan: the entrypoint + every traced step."""
+    dotted = {profile.entrypoint.module} | {t.split(":")[0] for t in profile.instrument_targets}
+    paths = [p for p in (_module_to_file(profile, m) for m in sorted(dotted)) if p]
+    if dotted and not paths:
+        print(f"WARN: none of {len(dotted)} source module(s) found under "
+              f"{profile.root} — the code-scan will have nothing to read. "
+              "Check the profile's root/src_roots.", file=sys.stderr)
+    return paths
+
+
+def _check_root(profile: ProjectProfile, name: str) -> None:
+    root = Path(profile.root)
+    if not root.is_dir():
+        raise FileNotFoundError(
+            f"Project root for '{name}' does not exist: {root}. "
+            "Fix the profile's root (or the environment variable it references)."
+        )
+
+
 def _discovered_spec(name: str) -> ProjectSpec:
     """Build a ProjectSpec from a saved profile.json + intent.md."""
     from .adapters.generic_adapter import GenericAdapter
 
     project_dir = _PROJECTS / name
     profile = ProjectProfile.load(project_dir)
+    _check_root(profile, name)
     intent = ""
     intent_path = project_dir / "intent.md"
     if intent_path.exists():
         intent = intent_path.read_text(encoding="utf-8")
 
-    # Code-scan reads the entrypoint module + the instrumented step files.
-    dotted_modules = {profile.entrypoint.module}
-    for t in profile.instrument_targets:
-        dotted_modules.add(t.split(":")[0])
-    code_paths = [p for p in (_module_to_file(profile, m) for m in dotted_modules) if p]
-
     return ProjectSpec(
         name=name,
         make_adapter=lambda: GenericAdapter(profile, intent=intent),
         project_dir=project_dir,
-        code_paths=code_paths,
+        code_paths=_code_paths(profile),
     )
 
 
@@ -139,17 +136,20 @@ def inplace_spec(root, llm, regenerate: bool = False):
             (at / "intent.md").write_text(intent_md, encoding="utf-8")
         did_onboard = True
 
+    # The user-maintained instrument list always wins, even after onboarding.
+    user_targets = read_project_instruments(root)
+    if user_targets:
+        profile.instrument_targets = user_targets
+
+    _check_root(profile, profile.name)
     intent = ""
     if (at / "intent.md").exists():
         intent = (at / "intent.md").read_text(encoding="utf-8")
-
-    dotted = {profile.entrypoint.module} | {t.split(":")[0] for t in profile.instrument_targets}
-    code_paths = [p for p in (_module_to_file(profile, m) for m in dotted) if p]
 
     spec = ProjectSpec(
         name=profile.name,
         make_adapter=lambda: GenericAdapter(profile, intent=intent),
         project_dir=at,
-        code_paths=code_paths,
+        code_paths=_code_paths(profile),
     )
     return spec, did_onboard

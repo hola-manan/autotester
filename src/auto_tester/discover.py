@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -57,6 +58,33 @@ def read_project_focus(root: str | Path) -> Optional[str]:
         except Exception:
             return None
     return None
+
+
+def read_project_instruments(root: str | Path) -> Optional[List[str]]:
+    """User-maintained trace targets at ``.autotester/instrument.yaml``.
+
+    When present these OVERRIDE the discovered ``instrument_targets`` — the
+    owner knows better than the LLM which inner steps matter. The format is a
+    plain YAML list of ``module:qualname`` strings (parsed without a YAML dep):
+
+        # steps worth tracing
+        - mypkg.domain.calc:Calculator.compute
+        - mypkg.io.fetch:fetch_data
+    """
+    cand = Path(root) / AUTOTESTER_DIR / "instrument.yaml"
+    if not cand.exists():
+        return None
+    targets: List[str] = []
+    try:
+        for line in cand.read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line.startswith("- "):
+                item = line[2:].strip().strip("'\"")
+                if item:
+                    targets.append(item)
+    except Exception:
+        return None
+    return targets or None
 _SKIP_DIRS = {".git", ".venv", "venv", ".venv312", "__pycache__", "node_modules",
               ".miniforge3", ".conda-gdal", ".py312embed", "build", "dist",
               ".pytest_cache", "tests", "test", "data", "infra", "docs_build"}
@@ -92,11 +120,30 @@ class ProjectProfile:
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "ProjectProfile":
-        ep = d.get("entrypoint", {})
+        ep = d.get("entrypoint") or {}
+        module, qualname = ep.get("module"), ep.get("qualname")
+        if not module or not qualname:
+            raise ValueError(
+                "profile.json has an incomplete entrypoint (needs 'module' and "
+                "'qualname'). Re-onboard with --reonboard or fix the file by hand."
+            )
+        # ``root`` may contain ${ENV_VAR} placeholders so a profile checked into
+        # the repo (e.g. projects/jeevn) works on any machine.
+        root = os.path.expandvars(d["root"])
+        if "${" in root or "$" == root[:1]:
+            raise EnvironmentError(
+                f"profile.json root '{d['root']}' references an environment "
+                "variable that is NOT set. Set it (e.g. export "
+                f"{d['root'].strip('${}')}=/path/to/project) and re-run."
+            )
         return ProjectProfile(
-            name=d["name"], root=d["root"], src_roots=d.get("src_roots", []),
-            entrypoint=Entrypoint(**ep), instrument_targets=d.get("instrument_targets", []),
-            example_cases=d.get("example_cases", []), python=d.get("python"),
+            name=d["name"], root=root, src_roots=d.get("src_roots") or [],
+            entrypoint=Entrypoint(
+                module=module, qualname=qualname,
+                kind=ep.get("kind", "function"), params=ep.get("params") or [],
+            ),
+            instrument_targets=d.get("instrument_targets") or [],
+            example_cases=d.get("example_cases") or [], python=d.get("python"),
             notes=d.get("notes", ""),
         )
 
@@ -247,7 +294,9 @@ def _prompt(docs: str, code_map: str, authoritative_intent: Optional[str]) -> st
     ])
 
 
-def profile_project(llm: LLM, project_root: str | Path, name: Optional[str] = None) -> ProjectProfile:
+def profile_project(
+    llm: LLM, project_root: str | Path, name: Optional[str] = None
+) -> "tuple[ProjectProfile, str]":
     root = Path(project_root).resolve()
     if not root.is_dir():
         raise NotADirectoryError(f"Not a directory: {root}")
@@ -260,19 +309,34 @@ def profile_project(llm: LLM, project_root: str | Path, name: Optional[str] = No
 
     raw = llm.json(_prompt(docs, code_map, authoritative_intent), tier="pro",
                    system=_SYSTEM, temperature=0.2)
-    ep = raw.get("entrypoint", {})
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"Discovery failed: the model returned {type(raw).__name__} instead of "
+            "a profile object. Re-run onboarding (--reonboard)."
+        )
+    ep = raw.get("entrypoint") or {}
+    module, qualname = ep.get("module"), ep.get("qualname")
+    if not module or not qualname:
+        raise ValueError(
+            "Discovery failed: the model's profile is missing the entrypoint "
+            f"(got {json.dumps(ep)[:200]}). Add a '.autotester/intent.md' with a "
+            "'How to run it' section to guide discovery, then re-run with --reonboard."
+        )
     profile = ProjectProfile(
         name=name or raw.get("name") or root.name.replace(" ", "_").lower(),
         root=str(root),
         src_roots=raw.get("src_roots") or src_roots,
         entrypoint=Entrypoint(
-            module=ep["module"], qualname=ep["qualname"],
-            kind=ep.get("kind", "function"), params=ep.get("params", []),
+            module=module, qualname=qualname,
+            kind=ep.get("kind", "function"), params=ep.get("params") or [],
         ),
-        instrument_targets=raw.get("instrument_targets", []),
-        example_cases=raw.get("example_cases", []),
+        instrument_targets=raw.get("instrument_targets") or [],
+        example_cases=raw.get("example_cases") or [],
         notes=raw.get("notes", ""),
     )
-    # Authoritative file wins over any LLM-rephrased intent.
+    # User-maintained files win over anything the LLM derived.
+    user_targets = read_project_instruments(root)
+    if user_targets:
+        profile.instrument_targets = user_targets
     intent_md = authoritative_intent or raw.get("intent_markdown", "")
     return profile, intent_md

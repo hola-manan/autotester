@@ -16,3 +16,7 @@ projects/*/cassettes/
 
 # auto-discovered projects are machine-specific (reference local paths) — keep local
 projects/ashi_auto/
+
+# Hypothesis example databases (per-project fuzz replay state)
+.hypothesis/
+projects/*/.hypothesis/
