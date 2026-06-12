@@ -55,4 +55,15 @@ prove or disprove it.>
 <Any specific inputs, ranges, or scenarios that hit this feature hard.>
 """
 
-TEMPLATES = {"intent": INTENT_TEMPLATE, "focus": FOCUS_TEMPLATE}
+INSTRUMENT_TEMPLATE = """\
+# Inner steps the tester should trace, one per line, as module:qualname.
+# When this file exists it OVERRIDES the targets the LLM discovered.
+# Use the binding where the function is actually CALLED (a name imported
+# with `from x import f` must be patched on the importing module).
+#
+# - mypkg.application.service:fetch_data
+# - mypkg.domain.calc:Calculator.compute
+"""
+
+TEMPLATES = {"intent": INTENT_TEMPLATE, "focus": FOCUS_TEMPLATE,
+             "instrument": INSTRUMENT_TEMPLATE}

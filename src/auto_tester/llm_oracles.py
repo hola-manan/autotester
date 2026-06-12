@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from .core.models import Finding, RunResult, Severity
 from .llm import LLM
+from .rubric import rubric_block
 
 _SYSTEM = (
     "You are a rigorous QA reviewer. You judge whether software output is "
@@ -152,13 +153,16 @@ def _to_findings(raw: Any, run: RunResult, check_id: str) -> List[Finding]:
 
 
 def final_judge(llm: LLM, intent: str, run: RunResult,
-                prior: Optional[List[Finding]] = None) -> List[Finding]:
+                prior: Optional[List[Finding]] = None,
+                rubric: Optional[List[str]] = None) -> List[Finding]:
     if run.output is None:
         return []  # crash handled by runner
     prompt = "\n".join(
         [
             "# Intent",
             intent.strip(),
+            "",
+            rubric_block(rubric),
             "",
             "# Input that was given to the pipeline",
             _dump(run.case.payload, 6000),
@@ -170,7 +174,8 @@ def final_judge(llm: LLM, intent: str, run: RunResult,
             "",
             "# Task",
             "Judge whether this output is correct and consistent given the input "
-            "and intent. Flag anything wrong, fabricated, contradictory, or out of "
+            "and intent" + (" — score every rubric criterion above" if rubric else "")
+            + ". Flag anything wrong, fabricated, contradictory, or out of "
             "range. Do not repeat anything under ALREADY REPORTED; add only "
             "genuinely new problems. " + _FINDING_FORMAT,
         ]
@@ -180,7 +185,8 @@ def final_judge(llm: LLM, intent: str, run: RunResult,
 
 
 def focused_check(llm: LLM, intent: str, focus: str, run: RunResult, max_steps: int = 12,
-                  prior: Optional[List[Finding]] = None) -> List[Finding]:
+                  prior: Optional[List[Finding]] = None,
+                  rubric: Optional[List[str]] = None) -> List[Finding]:
     """Judge specifically whether the user's FOCUS feature behaves correctly.
 
     Unlike ``final_judge`` (which looks at everything), this concentrates the
@@ -197,6 +203,8 @@ def focused_check(llm: LLM, intent: str, focus: str, run: RunResult, max_steps: 
         [
             "# Overall intent",
             intent.strip(),
+            "",
+            rubric_block(rubric),
             "",
             "# FOCUS — verify ONLY this feature/behavior in depth",
             focus.strip(),
@@ -225,7 +233,8 @@ def focused_check(llm: LLM, intent: str, focus: str, run: RunResult, max_steps: 
 
 
 def spot_check(llm: LLM, intent: str, run: RunResult, max_steps: int = 8,
-               prior: Optional[List[Finding]] = None) -> List[Finding]:
+               prior: Optional[List[Finding]] = None,
+               rubric: Optional[List[str]] = None) -> List[Finding]:
     if not run.trace.steps:
         return []
     steps = [
@@ -236,6 +245,8 @@ def spot_check(llm: LLM, intent: str, run: RunResult, max_steps: int = 8,
         [
             "# Intent",
             intent.strip(),
+            "",
+            rubric_block(rubric),
             "",
             "# Original input",
             _dump(run.case.payload, 4000),

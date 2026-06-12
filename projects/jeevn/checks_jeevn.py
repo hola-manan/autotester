@@ -102,10 +102,10 @@ def _(run):
         return {"observed": "aoi_info block is missing from the output.", "evidence": {}}
 
     expected = {
-        "latitude": round(payload["latitude"], 4),
-        "longitude": round(payload["longitude"], 4),
+        "latitude": round(payload["lat"], 4),
+        "longitude": round(payload["lon"], 4),
         "area_acres": payload["area_acres"],
-        "crop": payload["crop_type"],
+        "crop": payload["crop_name"],
     }
 
     mismatches = {}
@@ -330,7 +330,7 @@ def _(run):
 
 @metamorphic(id="location_change_affects_outputs",
             description="Changing the location (lat/lon) should change location-dependent outputs like weather, soil, and terrain.",
-            transform=lambda p: {**p, "latitude": p["latitude"] + 0.5, "longitude": p["longitude"] + 0.5},
+            transform=lambda p: {**p, "lat": p["lat"] + 0.5, "lon": p["lon"] + 0.5},
             severity="critical", category="correctness")
 def _(base, variant):
     if base.output is None or variant.output is None:
@@ -362,15 +362,15 @@ def _(base, variant):
             "observed": "Changing location had no effect on key location-dependent outputs, suggesting hardcoded data.",
             "evidence": {
                 "identical_fields": identical_fields,
-                "base_location": {"lat": base.case.payload["latitude"], "lon": base.case.payload["longitude"]},
-                "variant_location": {"lat": variant.case.payload["latitude"], "lon": variant.case.payload["longitude"]}
+                "base_location": {"lat": base.case.payload["lat"], "lon": base.case.payload["lon"]},
+                "variant_location": {"lat": variant.case.payload["lat"], "lon": variant.case.payload["lon"]}
             }
         }
     return None
 
 @metamorphic(id="fertilizer_current_levels_depend_on_location",
             description="Current soil nutrient levels should change with location, not be hardcoded constants.",
-            transform=lambda p: {**p, "latitude": p["latitude"] - 0.5, "longitude": p["longitude"] - 0.5},
+            transform=lambda p: {**p, "lat": p["lat"] - 0.5, "lon": p["lon"] - 0.5},
             severity="critical", category="fabrication")
 def _(base, variant):
     if base.output is None or variant.output is None:
@@ -395,15 +395,15 @@ def _(base, variant):
             "observed": "Current soil nutrient levels are identical for different locations, indicating they are hardcoded.",
             "evidence": {
                 "hardcoded_values": identical_currents,
-                "base_location": {"lat": base.case.payload["latitude"], "lon": base.case.payload["longitude"]},
-                "variant_location": {"lat": variant.case.payload["latitude"], "lon": variant.case.payload["longitude"]}
+                "base_location": {"lat": base.case.payload["lat"], "lon": base.case.payload["lon"]},
+                "variant_location": {"lat": variant.case.payload["lat"], "lon": variant.case.payload["lon"]}
             }
         }
     return None
 
 @metamorphic(id="crop_change_affects_recommendations",
             description="Changing the crop type should change crop-specific outputs like yield potential and nutrient targets.",
-            transform=lambda p: {**p, "crop_type": "wheat" if p.get("crop_type") != "wheat" else "apple"},
+            transform=lambda p: {**p, "crop_name": "wheat" if p.get("crop_name") != "wheat" else "apple"},
             severity="high", category="correctness")
 def _(base, variant):
     if base.output is None or variant.output is None:
@@ -426,8 +426,8 @@ def _(base, variant):
             "observed": "Changing the crop type did not affect key crop-specific outputs.",
             "evidence": {
                 "identical_fields": identical_fields,
-                "base_crop": base.case.payload["crop_type"],
-                "variant_crop": variant.case.payload["crop_type"]
+                "base_crop": base.case.payload["crop_name"],
+                "variant_crop": variant.case.payload["crop_name"]
             }
         }
     return None

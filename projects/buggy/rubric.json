@@ -1,0 +1,14 @@
+{
+  "criteria": [
+    "The `orders` list in the final output must not contain any two orders with identical `id` values.",
+    "For every order in the output `orders` list, its `amount_value` field must accurately represent the numeric value parsed from its original `amount` string.",
+    "If an input order's `amount` string was unparseable, the corresponding output order must explicitly indicate an error for its amount, and its `amount_value` must not be 0 unless 0 was the explicitly parsed value.",
+    "For each order in the output `orders` list, its `customer`, `region`, and `status` fields must be identical to those of the original input order from which it was derived.",
+    "The `order_count` in the summary section of the output must be exactly equal to the total number of orders present in the `orders` list.",
+    "The `total_revenue` in the summary section of the output must be exactly equal to the sum of all `amount_value` fields across all orders in the `orders` list.",
+    "Every order present in the output `orders` list must have its `id`, `customer`, and `region` fields exactly matching an order from the input sources.",
+    "If multiple input orders share the same `id`, the output order with that `id` must retain the `customer`, `region`, `status`, and `amount` (or `amount_value`) from the *first* occurrence of that `id` in the input.",
+    "The output `orders` list must include every unique order `id` from the input sources, provided its `amount` field was parseable.",
+    "The `amount_value` for any order in the output must be a numeric type (e.g., float, decimal) and not a string."
+  ]
+}

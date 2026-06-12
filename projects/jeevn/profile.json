@@ -1,0 +1,41 @@
+{
+  "name": "jeevn",
+  "root": "${JEEVN_SRC}",
+  "src_roots": ["."],
+  "entrypoint": {
+    "module": "jeevn.application.advisory_service",
+    "qualname": "AgriculturalReportGenerator.generate_report",
+    "kind": "staticmethod",
+    "params": [
+      {"name": "lat", "example": 31.1, "required": true},
+      {"name": "lon", "example": 77.17, "required": true},
+      {"name": "area_acres", "example": 1.0, "required": false},
+      {"name": "crop_name", "example": "apple", "required": false},
+      {"name": "sowing_date", "example": null, "required": false},
+      {"name": "ndvi_timeseries", "example": null, "required": false},
+      {"name": "location_name", "example": "Shimla", "required": false}
+    ]
+  },
+  "instrument_targets": [
+    "jeevn.application.advisory_service:fetch_aoi_data",
+    "jeevn.domain.irrigation.et0:IrrigationCalculator.calculate_et0_hargreaves_samani",
+    "jeevn.domain.irrigation.et0:IrrigationCalculator.calculate_kc",
+    "jeevn.domain.irrigation.et0:IrrigationCalculator.calculate_etc",
+    "jeevn.domain.fertilizer.requirements:NutrientRequirementCalculator.calculate_nutrient_requirements",
+    "jeevn.domain.soil.management:SoilManagementCalculator.analyze_soil",
+    "jeevn.domain.pest_disease_weed.assessment:PestDiseaseWeedAssessor.assess_pest_disease_risk",
+    "jeevn.domain.growth_yield.projection:YieldGrowthCalculator.calculate_yield_projection"
+  ],
+  "example_cases": [
+    {
+      "label": "shimla-apple-farm",
+      "payload": {"lat": 31.1, "lon": 77.17, "area_acres": 1.0, "crop_name": "apple", "location_name": "Shimla"}
+    },
+    {
+      "label": "ludhiana-wheat-default-area",
+      "payload": {"lat": 30.9, "lon": 75.85, "area_acres": 2.5, "crop_name": "wheat", "location_name": "Ludhiana"}
+    }
+  ],
+  "python": null,
+  "notes": "Set the JEEVN_SRC environment variable to jeevn's src directory (the folder containing the 'jeevn' package). Run from jeevn's own venv so rasterio/GDAL import. fetch_aoi_data is traced where it is called (advisory_service) because it was imported by name there."
+}

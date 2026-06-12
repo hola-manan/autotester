@@ -77,6 +77,7 @@ class LLM:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or load_settings()
         self._client = None
+        self._pro_unavailable = False  # set when the pro model 404s for this key
 
     # -- internals -------------------------------------------------------- #
     def _ensure_client(self):
@@ -101,7 +102,26 @@ class LLM:
         return self._client
 
     def _model(self, tier: str) -> str:
-        return self.settings.model_pro if tier == "pro" else self.settings.model_flash
+        if tier == "pro" and not self._pro_unavailable:
+            return self.settings.model_pro
+        return self.settings.model_flash
+
+    def _note_model_error(self, tier: str, err: Exception) -> bool:
+        """Downgrade pro->flash when the key simply has no access to the pro
+        model (404 NOT_FOUND — common on Vertex AI Express keys). Returns True
+        if the call should be retried immediately on the fallback model."""
+        if tier != "pro" or self._pro_unavailable:
+            return False
+        msg = str(err)
+        if "NOT_FOUND" not in msg and '"code": 404' not in msg and "'code': 404" not in msg:
+            return False
+        self._pro_unavailable = True
+        import sys
+        print(f"WARN: model '{self.settings.model_pro}' is not available to this "
+              f"key ({msg[:120]}…). Falling back to "
+              f"'{self.settings.model_flash}' for all pro-tier calls this session.",
+              file=sys.stderr)
+        return True
 
     # -- public API ------------------------------------------------------- #
     def text(
@@ -135,9 +155,11 @@ class LLM:
                     config=cfg,
                 )
                 return (resp.text or "").strip()
-            except Exception as e:  # transient: backoff and retry
+            except Exception as e:
                 last_err = e
-                time.sleep(1.5 * (attempt + 1))
+                if self._note_model_error(tier, e):
+                    continue  # retry immediately on the fallback model
+                time.sleep(1.5 * (attempt + 1))  # transient: backoff and retry
         raise LLMError(f"Gemini call failed after {retries} attempts: {last_err}")
 
     def json(

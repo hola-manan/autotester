@@ -39,12 +39,24 @@ _PROJECTS = Path(__file__).resolve().parents[2] / "projects"
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
-def _require_key() -> Optional[int]:
+def _require_key(why: str = "this command") -> Optional[int]:
     if not load_settings().has_key:
-        print("ERROR: GEMINI_API_KEY is not set. Add it to .env (see .env.example).",
-              file=sys.stderr)
+        print(f"ERROR: GEMINI_API_KEY is not set, and {why} needs the LLM. "
+              "Add it to .env (see .env.example).", file=sys.stderr)
         return 2
     return None
+
+
+def _warn_partial_mode() -> None:
+    """The key is missing but a degraded run is possible — say so LOUDLY."""
+    bar = "!" * 72
+    print(f"\n{bar}\n"
+          "!! GEMINI_API_KEY is not set — running in PARTIAL mode.\n"
+          "!! SKIPPED: code-scan, input generation, oracle/strategy generation,\n"
+          "!!          and all LLM judging (most of this tool's power).\n"
+          "!! RUNNING: pre-existing deterministic checks + Hypothesis fuzzing.\n"
+          "!! The report will be marked PARTIAL — a clean result is NOT a pass.\n"
+          f"{bar}\n", file=sys.stderr)
 
 
 def _derive_name(path: Path, explicit: Optional[str]) -> str:
@@ -94,6 +106,7 @@ def _session_opts(args, focus: str) -> SessionOptions:
         final_judge=not args.no_final_judge,
         llm_judge_limit=args.judge_limit,
         focus=focus,
+        fuzz_examples=0 if args.no_fuzz else args.fuzz,
     )
 
 
@@ -145,7 +158,8 @@ def _cmd_template(args: argparse.Namespace) -> int:
     if args.out:
         d = Path(args.out) / ".autotester"
         d.mkdir(parents=True, exist_ok=True)
-        path = d / f"{args.kind}.md"
+        ext = "yaml" if args.kind == "instrument" else "md"
+        path = d / f"{args.kind}.{ext}"
         path.write_text(text, encoding="utf-8")
         print(f"Wrote {path}")
     else:
@@ -161,7 +175,7 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
     code = maybe_bootstrap(root, sys.argv[1:])
     if code is not None:
         return code
-    err = _require_key()
+    err = _require_key("onboarding (project discovery)")
     if err:
         return err
     _do_onboard(root, args.name)
@@ -191,9 +205,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if code is not None:
             return code
 
-    err = _require_key()
-    if err:
-        return err
+    # The key is mandatory only when discovery must run; with an existing
+    # profile a keyless session still runs the deterministic spine, loudly.
+    needs_onboard = bool(args.path) and (
+        not has_profile(_derive_name(root, args.name)) or args.reonboard)
+    if needs_onboard:
+        err = _require_key("onboarding (project discovery)")
+        if err:
+            return err
+    elif not load_settings().has_key:
+        _warn_partial_mode()
 
     # Onboard on demand for --path.
     if args.path:
@@ -220,9 +241,13 @@ def _cmd_test(args: argparse.Namespace) -> int:
     code = maybe_bootstrap(root, sys.argv[1:])
     if code is not None:
         return code
-    err = _require_key()
-    if err:
-        return err
+    needs_onboard = args.reonboard or not (root / ".autotester" / "profile.json").exists()
+    if needs_onboard:
+        err = _require_key("onboarding (project discovery)")
+        if err:
+            return err
+    elif not load_settings().has_key:
+        _warn_partial_mode()
 
     spec, did_onboard = inplace_spec(root, LLM(), regenerate=args.reonboard)
     if did_onboard:
@@ -244,6 +269,9 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-spot-check", action="store_true")
     parser.add_argument("--no-final-judge", action="store_true")
     parser.add_argument("--judge-limit", type=int, default=6, help="max runs to LLM-judge")
+    parser.add_argument("--fuzz", type=int, default=25,
+                        help="Hypothesis examples for the property-based fuzz stage")
+    parser.add_argument("--no-fuzz", action="store_true", help="disable the fuzz stage")
 
 
 def build_parser() -> argparse.ArgumentParser:
