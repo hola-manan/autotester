@@ -188,15 +188,18 @@ def _resolve(path: str) -> Tuple[Any, str, str]:
 def instrument(targets: Iterable[str]):
     """Monkeypatch each dotted ``target`` with a tracing wrapper for the block.
 
-    Restores the originals on exit. Targets that fail to resolve are skipped
-    (recorded in the returned list's absence) rather than aborting the run.
+    Restores the originals on exit. Targets that fail to resolve don't abort
+    the run, but they are reported on stderr — silently tracing nothing makes
+    the step oracles useless without anyone noticing.
     """
     patched: List[Tuple[Any, str, Any]] = []
+    failed: List[str] = []
     try:
         for path in targets:
             try:
                 owner, attr, display = _resolve(path)
             except Exception:
+                failed.append(path)
                 continue
             orig = getattr(owner, attr)
             if getattr(orig, "__auto_tester_wrapped__", False):
@@ -205,6 +208,10 @@ def instrument(targets: Iterable[str]):
             # getattr already returns the callable, so wrap that.
             setattr(owner, attr, _wrap(orig, display))
             patched.append((owner, attr, orig))
+        if failed:
+            import sys
+            print(f"WARN: {len(failed)} instrument target(s) could not be resolved "
+                  f"and will NOT be traced: {', '.join(failed[:8])}", file=sys.stderr)
         yield
     finally:
         for owner, attr, orig in patched:

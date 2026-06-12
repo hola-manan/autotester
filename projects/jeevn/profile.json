@@ -13,6 +13,7 @@
       {"name": "crop_name", "example": "apple", "required": false},
       {"name": "sowing_date", "example": null, "required": false},
       {"name": "ndvi_timeseries", "example": null, "required": false},
+      {"name": "ndvi_raster_data", "example": null, "required": false},
       {"name": "location_name", "example": "Shimla", "required": false}
     ]
   },

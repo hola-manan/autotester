@@ -48,6 +48,12 @@ class GenericAdapter(PipelineAdapter):
         self._callable = obj
         return obj
 
+    def run(self, case: Case):
+        # The src roots must be importable BEFORE the base run() instruments the
+        # targets — instrument() imports each target module to patch it.
+        self._ensure_path()
+        return super().run(case)
+
     def invoke(self, case: Case) -> Any:
         fn = self._resolve_callable()
         payload = case.payload
