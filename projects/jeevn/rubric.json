@@ -1,0 +1,15 @@
+{
+  "criteria": [
+    "If any data point within the generated report is a fabricated default or derived from a hardcoded placeholder, its JSON path must be present in `report[\"data_quality\"][\"fabricated_fields\"]`.",
+    "Every JSON path listed in `report[\"data_quality\"][\"fabricated_fields\"]` must correspond to a value in the report that is a fabricated default or derived from a hardcoded placeholder.",
+    "The `crop type` input must demonstrably influence crop-specific parameters, such as the `kc` values found in the `irrigation_schedule` and the specific risks listed in `pest_disease_weed_risk`.",
+    "The 'current soil levels' used to calculate nutrient `gap` in the `fertilizer_schedule` must be specific to the provided `latitude` and `longitude`, not a fixed constant, unless explicitly listed in `report[\"data_quality\"][\"fabricated_fields\"]`.",
+    "All `soil.ph` values within the report must be within the numerical range [0, 14].",
+    "The sum of `soil.texture.sand_percent`, `soil.texture.silt_percent`, and `soil.texture.clay_percent` must be within 99-101 (inclusive), and each individual percentage must be within [0, 100] (inclusive).",
+    "For each entry in the `irrigation_schedule`, the `etc_mm_per_day` value must be equal to `et0_mm_per_day` multiplied by the corresponding `kc` value, within a reasonable tolerance (e.g., +/- 0.01).",
+    "For each nutrient listed in the `fertilizer_schedule`, the `gap` value must be calculated as `max(0, target_level - current_level)`.",
+    "All yield/loss percentages within `growth_yield_projection` and all risk scores within `pest_disease_weed_risk` must be within the numerical range [0, 100] (inclusive).",
+    "Any `status` (e.g., \"critical\", \"high risk\", \"deficient\") reported for a specific component (e.g., `pest_disease_weed_risk.status`, `fertilizer_schedule.nutrient.status`) must be consistent with its underlying numerical values and defined thresholds.",
+    "The overall `summary` and `recommendations` must be logically supported by the detailed data and analyses presented in the `field_maps`, `irrigation_schedule`, `soil_management`, `growth_yield_projection`, `pest_disease_weed_risk`, and `fertilizer_schedule` sections."
+  ]
+}
